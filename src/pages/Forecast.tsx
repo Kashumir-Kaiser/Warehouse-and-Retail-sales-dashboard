@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   ComposedChart,
   Line,
@@ -13,6 +13,12 @@ import {
 import { getForecast, downloadForecast } from "@/api/client";
 import type { ForecastPoint } from "@/types";
 import { Download, TrendingUp } from "lucide-react";
+
+const formatDate = (d : Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+};
 
 export default function ForecastPage() {
   const [itemType, setItemType] = useState<string | null>(null);
@@ -29,11 +35,9 @@ export default function ForecastPage() {
       setLoading(true);
       try {
         const res = await getForecast(itemType);
-        const hist = res.historical.filter(d => d.type === "historical");
-        const fcst = res.forecast.filter(d => d.type === "forecast");
         if (!cancelled) {
-          setHistorical(hist);
-          setForecast(fcst);
+          setHistorical(res.historical);
+          setForecast(res.forecast);
           setMae(res.mae);
           setModel(res.model || "");
         }
@@ -47,10 +51,60 @@ export default function ForecastPage() {
     return () => { cancelled = true; };
   }, [itemType]);
 
-  // Combine sorted by date for the chart
-  const chartData = [...historical, ...forecast]
-    .filter(d => d.total_sales != null)  // skip missing months for the line
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // Build unified master data array
+  const unifiedData = useMemo(() => {
+    if (historical.length === 0 && forecast.length === 0) return [];
+
+    // 1. Determine data range
+    const allDates = [
+      ...historical.map(d => d.date),
+      ...forecast.map(d => d.date),
+    ];
+    // Filter out any nulls/undefined dates
+    const validDates = allDates.filter(d => d);
+    if (validDates.length === 0) return [];
+
+    const minDate = new Date(
+      Math.min(...validDates.map(d => new Date(d + "-01").getTime()))
+    );
+    const maxDate = new Date(
+      Math.max(...validDates.map(d => new Date(d + "-01").getTime()))
+    );
+
+    // 2. Generate master month array from min to max
+    const masterDates: string[] = [];
+    const current = new Date(minDate);
+    while (current <= maxDate) {
+      masterDates.push(formatDate(current));
+      current.setMonth(current.getMonth() + 1);
+    }
+
+    // 3. Create lookup maps
+    const histMap = new Map<string, number | null>();
+    historical.forEach(h => histMap.set(h.date, h.total_sales));
+
+    const fcstMap = new Map<string, {total_sales: number | null; yhat_lower?: number; yhat_upper?: number }>();
+    forecast.forEach(f => {
+      fcstMap.set(f.date, {
+        total_sales: f.total_sales,
+        yhat_lower: f.yhat_lower,
+        yhat_upper: f.yhat_upper,
+      });
+    });
+
+    // 4. Assemble unified data objects
+    return masterDates.map(date => {
+      const histVal = histMap.get(date) ?? null;
+      const fcst = fcstMap.get(date);
+      return {
+        date,
+        historical: histVal,
+        forecast: fcst?.total_sales ?? null,
+        yhat_lower: showBands ? fcst?.yhat_lower ?? null : null,
+        yhat_upper: showBands ? fcst?.yhat_upper ?? null : null,
+      };
+    });
+  }, [historical, forecast, showBands]);
 
   const handleDownload = () => downloadForecast(itemType);
 
@@ -108,10 +162,14 @@ export default function ForecastPage() {
 
       {loading ? (
         <div className="bg-white rounded-xl border p-4 h-[500px] animate-pulse" />
+      ) : unifiedData.length === 0 ? (
+        <div className="bg-white rounded-xl border p-5 text-center text-gray-500 h-[500px] flex items-center justify-center">
+          No forecast data available.
+        </div>
       ) : (
         <div className="bg-white rounded-xl border p-5 shadow-sm">
           <ResponsiveContainer width="100%" height={500}>
-            <ComposedChart data={chartData}>
+            <ComposedChart data={unifiedData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="date"
@@ -120,7 +178,6 @@ export default function ForecastPage() {
                   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
                   return `${months[parseInt(m)-1]} ${y.slice(2)}`;
                 }}
-                interval="preserveStartEnd"
               />
               <YAxis />
               <Tooltip
@@ -130,25 +187,26 @@ export default function ForecastPage() {
                 }}
               />
               <Legend />
-              {showBands && forecast.length > 0 && (
+              {/* Confidence bands (only if forecast data exists) */}
+              {forecast.length > 0 && (
                 <>
                   <Area
                     type="monotone"
                     dataKey="yhat_upper"
-                    data={forecast as ForecastPoint[]}
-                    stroke="transparent"
-                    fill="#ef4444"
-                    fillOpacity={0.15}
+                    stroke="ef4444"
+                    strokeWidth={1}
+                    strokeDasharray="4 4"
+                    dot={false}
                     name="Upper 80%"
                     connectNulls
                   />
                   <Area
                     type="monotone"
                     dataKey="yhat_lower"
-                    data={forecast as ForecastPoint[]}
-                    stroke="transparent"
-                    fill="#ffffff"
-                    fillOpacity={0}
+                    stroke="ef4444"
+                    strokeWidth={1}
+                    strokeDasharray="4 4"
+                    dot={false}
                     name="Lower 80%"
                     connectNulls
                   />
@@ -156,18 +214,16 @@ export default function ForecastPage() {
               )}
               <Line
                 type="monotone"
-                dataKey="total_sales"
-                data={historical as ForecastPoint[]}
+                dataKey="historical"
                 stroke="#3b82f6"
                 strokeWidth={2}
-                dot={{ r: 3, fill: "#3b82f6" }}
+                dot={{ r: 3, fill: "#3b82f6"}}
                 name="Historical"
-                connectNulls
+                connectNulls={false}
               />
               <Line
                 type="monotone"
-                dataKey="total_sales"
-                data={forecast as ForecastPoint[]}
+                dataKey="forecast"
                 stroke="#ef4444"
                 strokeWidth={2}
                 dot={{ r: 3, fill: "#ef4444" }}
@@ -176,14 +232,6 @@ export default function ForecastPage() {
               />
             </ComposedChart>
           </ResponsiveContainer>
-          <div className="flex items-center justify-center gap-6 mt-4">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Historical
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Forecast
-            </div>
-          </div>
         </div>
       )}
     </div>

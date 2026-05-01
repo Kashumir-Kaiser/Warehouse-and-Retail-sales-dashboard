@@ -71,8 +71,10 @@ export interface ChannelMixItem {
 }
 
 export interface ForecastPoint {
+  date: string;       // "YYYY-MM"
   month: number;
-  total_sales: number;
+  year: number;
+  total_sales: number | null;  // null for missing historical months
   type: string;
   yhat_lower?: number;
   yhat_upper?: number;
@@ -82,8 +84,9 @@ export interface ForecastPoint {
 
 export interface ForecastResponse {
   historical: ForecastPoint[];
-  interpolated: ForecastPoint[];
+  forecast: ForecastPoint[];    // replaced "interpolated"
   mae: number | null;
+  model?: string;
 }
 
 export interface Product {

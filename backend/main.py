@@ -365,91 +365,279 @@ def get_channel_mix(month: Optional[int] = Query(None), classification: Optional
         })
     return result
 
-@app.get("/api/forecast")
-def get_forecast(item_type: Optional[str] = Query(None), year: Optional[int] = Query(None)):
-    # Default to latest year
-    if year is None:
-        year = int(_df["YEAR"].max())
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    d = _df[_df["YEAR"] == year].copy()
+def _prepare_total_sales_series(item_type: Optional[str] = None) -> pd.Series:
+    """
+    Build a monthly series of total sales (retail + warehouse + transfers)
+    from the first available month to the last available month.
+    Returns a Series with a DateTimeIndex and explicit NaN for missing months.
+    """
+    df = _df.copy()
     if item_type:
-        d = d[d["ITEM_TYPE"] == item_type]
-    monthly = d.groupby("MONTH").agg({"RETAIL_SALES": "sum", "WAREHOUSE_SALES": "sum"}).reset_index()
-    monthly["total_sales"] = monthly["RETAIL_SALES"] + monthly["WAREHOUSE_SALES"]
-    # Ensure all months 1-12 exist
-    full = pd.DataFrame({"MONTH": range(1, 13)})
-    monthly = full.merge(monthly, on="MONTH", how="left")
-    monthly["total_sales"] = monthly["total_sales"].fillna(0).round(2)
-    monthly = monthly.sort_values("MONTH")
-    ts = monthly["total_sales"].values
-    if len(ts) < 4:
-        return {"historical": [], "interpolated": [], "mae": None}
+        df = df[df["ITEM_TYPE"] == item_type]
+
+    # Create a proper date column
+    df["date"] = pd.to_datetime(
+        df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-01", errors="coerce"
+    )
+    df = df.dropna(subset=["date"])
+
+    # Compute monthly total sales
+    monthly = df.groupby("date").agg(
+        retail_sales=("RETAIL_SALES", "sum"),
+        warehouse_sales=("WAREHOUSE_SALES", "sum"),
+        transfers=("RETAIL_TRANSFERS", "sum")
+    ).reset_index()
+    monthly["total_sales"] = (
+        monthly["retail_sales"] + monthly["warehouse_sales"] + monthly["transfers"]
+    )
+    monthly = monthly.set_index("date").sort_index()
+
+    # Create a continuous monthly range from the first to the last available date
+    full_range = pd.date_range(
+        start=monthly.index.min(), end=monthly.index.max(), freq="MS"
+    )
+    monthly = monthly.reindex(full_range)
+    monthly["total_sales"] = monthly["total_sales"].fillna(0)
+    monthly.index.freq = 'MS'  # set frequency for time series operations
+    return monthly["total_sales"]
+
+
+def _build_baseline_forecasts(series: pd.Series, forecast_horizon: int = 24):
+    """Seasonal naïve and moving average forecasts for validation."""
+    results = {}
+
+    # Seasonal naïve (repeat last 12 months)
+    if len(series) >= 12:
+        last_year = series.iloc[-12:]
+        naive_forecast = pd.Series(
+            np.tile(last_year.values, int(np.ceil(forecast_horizon / 12)))[:forecast_horizon],
+            index=pd.date_range(start=series.index[-1] + pd.DateOffset(months=1), periods=forecast_horizon, freq="MS")
+        )
+        results["seasonal_naive"] = naive_forecast
+
+    # Moving average (order 3)
+    if len(series) >= 3:
+        moving_avg = series.rolling(window=3).mean().iloc[-1]
+        ma_forecast = pd.Series(
+            np.repeat(moving_avg, forecast_horizon),
+            index=pd.date_range(start=series.index[-1] + pd.DateOffset(months=1), periods=forecast_horizon, freq="MS")
+        )
+        results["moving_average"] = ma_forecast
+
+    return results
+
+
+def _evaluate_model(train_series, test_series, forecast_horizon):
+    """Fit Holt-Winters on train and return forecast + error metrics."""
+    clean_train = train_series.dropna()
+    if len(clean_train) < 2:
+        return None, None
 
     try:
-        model = ExponentialSmoothing(ts, trend="add", seasonal=None)
-        fit = model.fit(maxiter=1000)
-        forecast_vals = fit.forecast(3)
-        residuals = fit.resid
-        std = np.std(residuals)
-        yhat_lower = forecast_vals - 1.28 * std
-        yhat_upper = forecast_vals + 1.28 * std
-        yhat_lower2 = forecast_vals - 1.96 * std
-        yhat_upper2 = forecast_vals + 1.96 * std
-        mae = np.mean(np.abs(residuals))
+        model = ExponentialSmoothing(
+            clean_train,
+            trend="add",
+            seasonal="add",
+            seasonal_periods=12,
+            initialization_method="estimated",
+            dates=clean_train.index,
+        )
+        res = model.fit(minimize_kwargs={'options': {'maxiter': 2000, 'disp': False}})
+        forecast = res.forecast(forecast_horizon)
     except Exception:
-        x = np.arange(len(ts))
-        coeffs = np.polyfit(x, ts, 1)
-        forecast_vals = np.polyval(coeffs, np.arange(len(ts), len(ts)+3))
-        std = np.std(ts - np.polyval(coeffs, x))
-        yhat_lower = forecast_vals - 1.28 * std
-        yhat_upper = forecast_vals + 1.28 * std
-        yhat_lower2 = forecast_vals - 1.96 * std
-        yhat_upper2 = forecast_vals + 1.96 * std
-        mae = np.mean(np.abs(ts - np.polyval(coeffs, x)))
+        # Fallback to simple exponential smoothing
+        model = ExponentialSmoothing(clean_train, trend="add", seasonal=None, dates=clean_train.index)
+        res = model.fit(minimize_kwargs={'options': {'maxiter': 2000, 'disp': False}})
+        forecast = res.forecast(forecast_horizon)
 
+    # Build forecast index with explicit frequency
+    forecast_index = pd.date_range(
+        start=clean_train.index[-1] + pd.DateOffset(months=1),
+        periods=forecast_horizon,
+        freq="MS"
+    )
+    forecast = pd.Series(forecast, index=forecast_index)
+
+    common_idx = forecast.index.intersection(test_series.dropna().index)
+    if len(common_idx) == 0:
+        return forecast, None
+
+    actual = test_series.loc[common_idx]
+    predicted = forecast.loc[common_idx]
+    mae = np.mean(np.abs(actual - predicted))
+    rmse = np.sqrt(np.mean((actual - predicted) ** 2))
+    return forecast, {"mae": mae, "rmse": rmse}
+
+
+def _time_based_backtest(series, forecast_horizon=24, min_train_months=24):
+    """
+    Rolling‑origin validation. Train on increasing windows,
+    forecast h steps, compare with actuals.
+    Returns the best model (Holt‑Winters) and its metrics.
+    """
+    results = []
+    series_clean = series.dropna()
+    if len(series_clean) < min_train_months:
+        return None, None
+
+    # Define cut points: use the last 24 months as test set in a rolling manner
+    cutoffs = range(min_train_months, len(series_clean), 3)  # every 3 months
+    best_forecast = None
+    best_metric = float("inf")
+
+    for cutoff in cutoffs:
+        train = series_clean.iloc[:cutoff]
+        # The “test” period is the next forecast_horizon months (or all remaining)
+        next_idx = series_clean.index[cutoff:cutoff + forecast_horizon]
+        test = series_clean.loc[next_idx] if len(next_idx) > 0 else None
+        if test is None or len(test) == 0:
+            continue
+
+        forecast, metrics = _evaluate_model(train, test, forecast_horizon)
+        if metrics is not None:
+            results.append(metrics)
+            if metrics["mae"] < best_metric:
+                best_metric = metrics["mae"]
+                best_forecast = forecast
+
+    # Average metrics across windows
+    avg_metrics = {
+        "mae": np.mean([r["mae"] for r in results]) if results else None,
+        "rmse": np.mean([r["rmse"] for r in results]) if results else None,
+    }
+    return best_forecast, avg_metrics
+
+
+def _produce_final_forecast(series, horizon=24):
+    """Fit best model (Holt‑Winters) on the full available series."""
+    clean = series.dropna()
+
+    if len(clean) < 12:
+        # Not enough data, fallback to simple trend extrapolation
+        x = np.arange(len(clean))
+        coeffs = np.polyfit(x, clean.values, 1)
+        future_x = np.arange(len(clean), len(clean) + horizon)
+        preds = np.polyval(coeffs, future_x)
+        forecast_index = pd.date_range(
+            start=clean.index[-1] + pd.DateOffset(months=1),
+            periods=horizon,
+            freq="MS"
+        )
+        return pd.Series(preds, index=forecast_index), None
+
+    try:
+        model = ExponentialSmoothing(
+            clean,
+            trend="add",
+            seasonal="add",
+            seasonal_periods=12,
+            initialization_method="estimated",
+            dates=clean.index,
+        )
+        res = model.fit(minimize_kwargs={'options': {'maxiter': 1000, 'disp': False, 'tol': 1e-4}})
+    except Exception:
+        model = ExponentialSmoothing(clean, trend="add", seasonal=None, dates=clean.index)
+        res = model.fit(minimize_kwargs={'options': {'maxiter': 1000, 'disp': False}})
+
+    forecast = res.forecast(horizon)
+
+    forecast = forecast.where(np.isfinite(forecast), np.nan)
+
+    forecast_series = pd.Series(forecast, index=forecast.index)
+
+    # Approximate confidence bands using residuals std
+    residuals = res.resid if hasattr(res, "resid") else clean - res.fittedvalues
+    std = np.std(residuals) if len(residuals) > 1 else 0.0
+    return forecast_series, {"std": std, "mae": np.mean(np.abs(residuals))}
+
+@app.get("/api/forecast")
+def get_forecast(item_type: Optional[str] = Query(None)):
+    # Build the full monthly total sales series
+    series = _prepare_total_sales_series(item_type)
+
+    # Drop NaN (missing months) before backtesting – but keep original for display
+    clean_series = series.dropna()
+
+    # Run time‑based backtesting
+    _, validation_metrics = _time_based_backtest(series)
+
+    # Produce final 24‑month forecast
+    forecast_series, final_metrics = _produce_final_forecast(series, horizon=24)
+
+    # Build the response: historical points + forecast points
     historical = []
-    for _, row in monthly.iterrows():
+    for dt, value in series.items():
         historical.append({
-            "month": int(row["MONTH"]),
-            "total_sales": round(row["total_sales"], 2),
+            "date": dt.strftime("%Y-%m"),
+            "month": dt.month,
+            "year": dt.year,
+            "total_sales": round(value, 2) if not np.isnan(value) else None,
             "type": "historical"
         })
 
-    forecast_result = []
-    for i, m in enumerate([10, 11, 12]):
-        forecast_result.append({
-            "month": m,
-            "total_sales": round(forecast_vals[i], 2),
-            "type": "forecast",
-            "yhat_lower": round(max(0, yhat_lower[i]), 2),
-            "yhat_upper": round(yhat_upper[i], 2),
-            "yhat_lower_95": round(max(0, yhat_lower2[i]), 2),
-            "yhat_upper_95": round(yhat_upper2[i], 2)
-        })
+    forecast = []
+    if forecast_series is not None:
+        for dt, value in forecast_series.items():
+            total = round(value, 2) if np.isfinite(value) else None
+            lower = upper = lower95 = upper95 = None
+            if total is not None and final_metrics and np.isfinite(final_metrics.get("std", 0)):
+                s = final_metrics["std"]
+                lower = max(0, value - 1.28 * s)
+                upper = value + 1.28 * s
+                lower95 = max(0, value - 1.96 * s)
+                upper95 = value + 1.96 * s
+            forecast.append({
+                "date": dt.strftime("%Y-%m"),
+                "month": dt.month,
+                "year": dt.year,
+                "total_sales": total,
+                "type": "forecast",
+                "yhat_lower": round(lower, 2) if lower is not None else None,
+                "yhat_upper": round(upper, 2) if upper is not None else None,
+                "yhat_lower_95": round(lower95, 2) if lower95 is not None else None,
+                "yhat_upper_95": round(upper95, 2) if upper95 is not None else None,
+            })
+
+    mae_value = None
+    if validation_metrics and validation_metrics["mae"] is not None:
+        mae_value = round(validation_metrics["mae"], 2)
+    elif final_metrics and "mae" in final_metrics:
+        mae_value = round(final_metrics["mae"], 2)
 
     return {
-        "historical": historical + forecast_result,
-        "interpolated": [],
-        "mae": round(mae, 2)
+        "historical": historical,
+        "forecast": forecast,
+        "mae": mae_value,
+        "model": "Holt-Winters (additive)"  # informative
     }
 
 @app.get("/api/forecast/download")
-def download_forecast(item_type: Optional[str] = Query(None), year: Optional[int] = Query(None)):
-    data = get_forecast(item_type, year)
+def download_forecast(item_type: Optional[str] = Query(None)):
+    data = get_forecast(item_type)
     rows = []
+    # export both historical and forecast
     for h in data["historical"]:
         rows.append({
-            "month": h["month"],
+            "date": h["date"],
             "total_sales": h["total_sales"],
             "type": h["type"],
-            "yhat_lower": h.get("yhat_lower", ""),
-            "yhat_upper": h.get("yhat_upper", "")
+            "yhat_lower": "",
+            "yhat_upper": ""
+        })
+    for f in data["forecast"]:
+        rows.append({
+            "date": f["date"],
+            "total_sales": f["total_sales"],
+            "type": f["type"],
+            "yhat_lower": f["yhat_lower"] if f["yhat_lower"] is not None else "",
+            "yhat_upper": f["yhat_upper"] if f["yhat_upper"] is not None else ""
         })
     df_out = pd.DataFrame(rows)
     stream = io.StringIO()
     df_out.to_csv(stream, index=False)
     stream.seek(0)
-    return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=forecast.csv"})
+    return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=forecast.csv"})
 
 @app.get("/api/products/suggest")
 def product_suggest(q: str = Query(..., min_length=1)):

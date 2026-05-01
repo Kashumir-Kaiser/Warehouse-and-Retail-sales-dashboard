@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, X, Copy, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, X, Copy, ChevronLeft, ChevronRight, ArrowUpDown } from "lucide-react";
 import { searchProducts, getProductSuggest, getProductDetail } from "@/api/client";
 import { useFilterStore } from "@/store/useFilterStore";
 import type { Product, ProductDetail } from "@/types";
@@ -21,10 +21,16 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Sort order state: "desc" (highest first) or "asc" (lowest first)
+  const [order, setOrder] = useState<"desc" | "asc">("desc");
+
+  // Page jump state
+  const [pageInput, setPageInput] = useState("");
+  
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await searchProducts(q || undefined, itemType, supplier || undefined, page, perPage, "retail_sales", "desc", year);
+      const res = await searchProducts(q || undefined, itemType, supplier || undefined, page, perPage, "retail_sales", order, year);
       setProducts(res.data);
       setTotal(res.total);
     } catch (e) {
@@ -32,7 +38,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, itemType, supplier, page, perPage, year]);
+  }, [q, itemType, supplier, page, perPage, order, year]);
 
   useEffect(() => {
     load();
@@ -59,6 +65,31 @@ export default function ProductsPage() {
   };
 
   const totalPages = Math.ceil(total / perPage);
+
+  const monthLabel = (month: number) => {
+    const n = Number(month);
+    const months = [
+      "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    return months[n] ?? String(month);
+  };
+
+  const monthsCount = selected?.months_breakdown.length ?? 0;
+  const chartWidth = Math.max(420, monthsCount * 70);
+
+  const toggleSortOrder = () => {
+    setOrder(prev => (prev === "desc" ? "asc" : "desc"));
+    setPage(1);
+  };
+
+  const handlePageJump = () => {
+    const p = parseInt(pageInput, 10);
+    if(!isNaN(p) && p >= 1 && p <= totalPages) {
+      setPage(p);
+      setPageInput("");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -92,15 +123,61 @@ export default function ProductsPage() {
             <option value="KEGS">Kegs</option>
           </select>
           <input type="text" value={supplier} onChange={(e) => { setSupplier(e.target.value); setPage(1); }} placeholder="Filter by supplier..." className="px-3 py-2 rounded-lg text-sm border border-gray-300 bg-white w-64" />
+          {/* Sort order toggle button */}
+          <button
+            onClick={toggleSortOrder}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+          >
+            <ArrowUpDown size={16} />
+            {order === "desc" ? "Highest" : "Lowest"}
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <span className="text-sm text-gray-600">{total} results</span>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="px-3 py-1 rounded-lg text-sm font-medium bg-white border border-gray-300 disabled:opacity-50"><ChevronLeft size={16} /></button>
-          <span className="text-sm text-gray-600">Page {page} of {totalPages || 1}</span>
-          <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages || totalPages === 0} className="px-3 py-1 rounded-lg text-sm font-medium bg-white border border-gray-300 disabled:opacity-50"><ChevronRight size={16} /></button>
+        <div className="flex items-center gap-4">
+          {/* Prev/Next */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page === 1}
+              className="px-3 py-1 rounded-lg text-sm font-medium bg-white border border-gray-300 disabled:opacity-50"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm text-gray-600">
+              Page {page} of {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              disabled={page === totalPages || totalPages === 0}
+              className="px-3 py-1 rounded-lg text-sm font-medium bg-white border border-gray-300 disabled:opacity-50"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {/* Go to page */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Go to</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handlePageJump(); }}
+              placeholder="#"
+              className="w-16 px-2 py-1 rounded border text-sm text-center"
+            />
+            <button
+              onClick={handlePageJump}
+              className="px-2 py-1 rounded text-sm bg-gray-100 hover:bg-gray-200"
+            >
+              Go
+            </button>
+          </div>
         </div>
       </div>
 
@@ -113,7 +190,7 @@ export default function ProductsPage() {
           {products.map((p) => (
             <button key={p.item_code} onClick={() => openDetail(p.item_code)} className="bg-white rounded-xl border p-4 shadow-sm text-left hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between">
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{p.item_type}</span>
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{p.item_type}</span>
                 <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(p.item_code); }} className="text-gray-400 hover:text-gray-600" title="Copy item code"><Copy size={14} /></button>
               </div>
               <p className="mt-2 text-sm font-semibold text-slate-900 line-clamp-2">{p.item_description}</p>
@@ -127,49 +204,91 @@ export default function ProductsPage() {
       )}
 
       <Sheet open={!!selected} onOpenChange={() => setSelected(null)}>
-        <SheetContent className="w-[420px] sm:max-w-lg">
-          <SheetHeader>
+        <SheetContent className="w-[420px] sm:max-w-lg h-[100dvh] max-h-none flex flex-col overflow-hidden">
+          <SheetHeader className="shrink-0">
             <SheetTitle>Product Detail</SheetTitle>
           </SheetHeader>
+
           {detailLoading ? (
-            <div className="mt-6 animate-pulse h-40 bg-gray-200 rounded" />
+            <div className="animate-pulse h-40 bg-gray-200 rounded" />
           ) : selected && (
-            <div className="mt-6 space-y-6">
+            <div className="flex-1 min-h-0 overflow-y-auto mt-0 space-y-6 pr-1 pb-4">
+              {/* Badge + SKU */}
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{selected.item_type}</span>
-                  <button onClick={() => navigator.clipboard.writeText(selected.item_code)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"><Copy size={12} /> {selected.item_code}</button>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                    {selected.item_type}
+                  </span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(selected.item_code)}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    <Copy size={12} /> {selected.item_code}
+                  </button>
                 </div>
-                <p className="mt-2 text-lg font-bold text-slate-900">{selected.item_description}</p>
-                <p className="text-sm text-gray-500">{selected.supplier}</p>
+                <p className="mt-0 px-2 text-lg font-bold text-slate-900">
+                  {selected.item_description}
+                </p>
+                <p className="px-2 py-1 text-sm text-gray-500">{selected.supplier}</p>
               </div>
 
+              {/* Chart */}
               <div className="bg-white rounded-xl border p-4 shadow-sm">
-                <h4 className="text-sm font-semibold text-slate-900 mb-3">Monthly Breakdown</h4>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={selected.months_breakdown}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" tickFormatter={(m) => ["","Jan","","Mar","","","","Jul","","Sep"][m] || m} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" />
-                    <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" />
-                    <Bar dataKey="retail_transfers" name="Transfers" fill="#f59e0b" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <h4 className="text-sm font-semibold text-slate-900 mb-3">
+                  Monthly Breakdown
+                </h4>
+
+                <div className="overflow-x-auto">
+                  <div style={{ width: chartWidth, height: 240 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={selected.months_breakdown}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="month"
+                          tickFormatter={monthLabel}
+                          interval={0}
+                          minTickGap={0}
+                          angle={-45}
+                          textAnchor="end"
+                          height={60}
+                        />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" />
+                        <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" />
+                        <Bar dataKey="retail_transfers" name="Transfers" fill="#f59e0b" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               </div>
 
+              {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50"><tr><th className="text-left px-3 py-2 font-medium text-gray-600">Month</th><th className="text-right px-3 py-2 font-medium text-gray-600">Retail</th><th className="text-right px-3 py-2 font-medium text-gray-600">Warehouse</th><th className="text-right px-3 py-2 font-medium text-gray-600">Transfers</th></tr></thead>
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Month</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Retail</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Warehouse</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Transfers</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {selected.months_breakdown.map((m, i) => (
                       <tr key={i} className="border-t">
-                        <td className="px-3 py-2 text-slate-900">{["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m.month]}</td>
-                        <td className="px-3 py-2 text-right">${m.retail_sales.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">${m.warehouse_sales.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">${m.retail_transfers.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-slate-900">{monthLabel(m.month)}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          ${m.retail_sales.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          ${m.warehouse_sales.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          ${m.retail_transfers.toLocaleString()}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

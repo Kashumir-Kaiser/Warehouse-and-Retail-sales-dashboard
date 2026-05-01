@@ -95,10 +95,10 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Total Revenue" value={`$${(kpis?.total_revenue ?? 0).toLocaleString()}`} icon={TrendingUp} color="bg-blue-600" />
-        <KPICard title="Retail Sales" value={`$${(kpis?.total_retail ?? 0).toLocaleString()}`} icon={Package} color="bg-emerald-500" />
-        <KPICard title="Warehouse Sales" value={`$${(kpis?.total_warehouse ?? 0).toLocaleString()}`} icon={Truck} color="bg-amber-500" />
-        <KPICard title="Transfers" value={`$${(kpis?.total_transfers ?? 0).toLocaleString()}`} icon={ArrowRightLeft} color="bg-rose-500" />
+        <KPICard title="Total Revenue" value={`$${Math.round(kpis?.total_revenue ?? 0).toLocaleString()}`} icon={TrendingUp} color="bg-blue-600" />
+        <KPICard title="Retail Sales" value={`$${Math.round(kpis?.total_retail ?? 0).toLocaleString()}`} icon={Package} color="bg-emerald-500" />
+        <KPICard title="Warehouse Sales" value={`$${Math.round(kpis?.total_warehouse ?? 0).toLocaleString()}`} icon={Truck} color="bg-amber-500" />
+        <KPICard title="Transfers" value={`$${Math.round(kpis?.total_transfers ?? 0).toLocaleString()}`} icon={ArrowRightLeft} color="bg-rose-500" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

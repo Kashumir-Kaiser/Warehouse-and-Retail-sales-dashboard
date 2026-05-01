@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   Area,
 } from "recharts";
-import { getForecast, downloadForecast } from "@/api/client";
+import { getForecast } from "@/api/client";
 import type { ForecastPoint } from "@/types";
 import { Download, TrendingUp } from "lucide-react";
 
@@ -106,7 +106,28 @@ export default function ForecastPage() {
     });
   }, [historical, forecast, showBands]);
 
-  const handleDownload = () => downloadForecast(itemType);
+  const handleDownload = () => {
+    if (unifiedData.length === 0) return;
+
+    const headers = ["Date", "Historical", "Forecast", "Lower 80%", "Upper 80%"];
+    const rows = unifiedData.map((d) => [
+      d.date,
+      d.historical !== null ? d.historical.toFixed(0) : "",
+      d.forecast !== null ? d.forecast.toFixed(0) : "",
+      d.yhat_lower !== null ? d.yhat_lower.toFixed(0) : "",
+      d.yhat_upper !== null ? d.yhat_upper.toFixed(0) : "",
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `forecast${itemType ? "_" + itemType : ""}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">

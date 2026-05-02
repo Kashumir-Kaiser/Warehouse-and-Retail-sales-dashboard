@@ -241,6 +241,7 @@ export default function ForecastPage() {
                 dot={{ r: 3, fill: "#3b82f6"}}
                 name="Historical"
                 connectNulls={false}
+                isAnimationActive={false}
               />
               <Line
                 type="monotone"
@@ -250,6 +251,7 @@ export default function ForecastPage() {
                 dot={{ r: 3, fill: "#ef4444" }}
                 name="Forecast"
                 connectNulls
+                isAnimationActive={false}
               />
             </ComposedChart>
           </ResponsiveContainer>

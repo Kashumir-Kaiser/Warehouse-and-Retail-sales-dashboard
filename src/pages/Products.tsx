@@ -267,9 +267,9 @@ export default function ProductsPage() {
                         <YAxis />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" />
-                        <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" />
-                        <Bar dataKey="retail_transfers" name="Transfers" fill="#f59e0b" />
+                        <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" isAnimationActive={false} />
+                        <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" isAnimationActive={false} />
+                        <Bar dataKey="retail_transfers" name="Transfers" fill="#f59e0b" isAnimationActive={false} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

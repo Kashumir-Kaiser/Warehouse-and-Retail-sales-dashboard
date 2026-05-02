@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import {
   LayoutDashboard,
   Truck,
@@ -10,12 +10,13 @@ import {
   X,
 } from "lucide-react";
 import { useFilterStore } from "@/store/useFilterStore";
-import DashboardPage from "@/pages/Dashboard";
-import SuppliersPage from "@/pages/Suppliers";
-import CategoriesPage from "@/pages/Categories";
-import ChannelMixPage from "@/pages/ChannelMix";
-import ForecastPage from "@/pages/Forecast";
-import ProductsPage from "@/pages/Products";
+
+const DashboardPage = lazy(() => import("@/pages/Dashboard"));
+const SuppliersPage = lazy(() => import("@/pages/Suppliers"));
+const CategoriesPage = lazy(() => import("@/pages/Categories"));
+const ChannelMixPage = lazy(() => import("@/pages/ChannelMix"));
+const ForecastPage = lazy(() => import("@/pages/Forecast"));
+const ProductsPage = lazy(() => import("@/pages/Products"));
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -60,6 +61,7 @@ function FilterBar() {
           value={year}
           onChange={(e) => setYear(Number(e.target.value))}
           className="px-3 py-2 rounded-lg text-sm border border-gray-300 bg-white"
+          aria-label="Year"
         >
           {years.map((y) => (
             <option key={y} value={y}>{y}</option>
@@ -73,6 +75,7 @@ function FilterBar() {
           value={month ?? "ALL"}
           onChange={(e) => setMonth(e.target.value === "ALL" ? null : parseInt(e.target.value))}
           className="px-3 py-2 rounded-lg text-sm border border-gray-300 bg-white"
+          aria-label="Month"
         >
           <option value="ALL">All</option>
           {availableMonths.map((m) => (
@@ -89,6 +92,7 @@ function FilterBar() {
           value={itemType || "ALL"}
           onChange={(e) => setItemType(e.target.value === "ALL" ? null : e.target.value)}
           className="px-3 py-1 rounded-lg text-sm border border-gray-300 bg-white"
+          aria-label="Item Type"
         >
           <option value="ALL">All</option>
           <option value="WINE">Wine</option>
@@ -139,7 +143,7 @@ function Sidebar({ active, onNavigate, mobileOpen, onClose }: {
       >
         <div className="p-6 flex items-center justify-between">
           <h1 className="text-lg font-bold tracking-tight">Sales Dashboard</h1>
-          <button onClick={onClose} className="lg:hidden text-gray-400 hover:text-white">
+          <button onClick={onClose} className="lg:hidden text-gray-400 hover:text-white" aria-label="Close navigation menu">
             <X size={20} />
           </button>
         </div>
@@ -185,19 +189,21 @@ export default function App() {
       />
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
         <header className="bg-white border-b px-4 py-3 flex items-center gap-3 lg:hidden">
-          <button onClick={() => setMobileOpen(true)} className="text-gray-600">
+          <button onClick={() => setMobileOpen(true)} className="text-gray-600" aria-label="Open navigation menu">
             <Menu size={24} />
           </button>
           <h1 className="font-bold text-slate-900">Sales Dashboard</h1>
         </header>
         <FilterBar />
         <main className="flex-1 overflow-auto p-4 lg:p-6">
-          {activePage === "dashboard" && <DashboardPage />}
-          {activePage === "suppliers" && <SuppliersPage />}
-          {activePage === "categories" && <CategoriesPage />}
-          {activePage === "channel" && <ChannelMixPage />}
-          {activePage === "forecast" && <ForecastPage />}
-          {activePage === "products" && <ProductsPage />}
+          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>}>
+            {activePage === "dashboard" && <DashboardPage />}
+            {activePage === "suppliers" && <SuppliersPage />}
+            {activePage === "categories" && <CategoriesPage />}
+            {activePage === "channel" && <ChannelMixPage />}
+            {activePage === "forecast" && <ForecastPage />}
+            {activePage === "products" && <ProductsPage />}
+          </Suspense>
         </main>
       </div>
     </div>

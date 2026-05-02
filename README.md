@@ -32,6 +32,15 @@ An interactive dashboard for analysing warehouse and retail sales data using a K
 
 6. Open http://localhost:3000
 
+### Production Build
+
+  ```bash
+  npm run build
+  npm run preview
+  ```
+
+The app will be served (usually at http://localhost:4173).
+
 ### Features
 
 KPI cards, monthly charts, category analysis

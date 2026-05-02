@@ -173,7 +173,7 @@ useEffect(() => {
                 <YAxis type="number" dataKey="y" name="Warehouse Sales" unit=" $" />
                 <ZAxis type="number" dataKey="z" range={[20, 500]} />
                 <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CustomTooltip />} />
-                <Scatter data={scatterData} onClick={(d: { payload: ChannelMixItem }) => setSelected(d.payload)}>
+                <Scatter data={scatterData} onClick={(d: { payload: ChannelMixItem }) => setSelected(d.payload)} isAnimationActive={false}>
                   {scatterData.map((entry, index) => (
                     <Cell key={index} fill={CLASS_COLORS[entry.classification] || "#8884d8"} />
                   ))}

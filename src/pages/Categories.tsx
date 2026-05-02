@@ -105,6 +105,7 @@ export default function CategoriesPage() {
                     innerRadius={60}
                     outerRadius={100}
                     stroke="none"
+                    isAnimationActive={false}
                   >
                     {donutData.map((_, i) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="none" />
@@ -133,8 +134,8 @@ export default function CategoriesPage() {
                   <YAxis yAxisId="right" orientation="right" width={70} />
                   <Tooltip />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="qty" name="Transaction Count" fill="#8b5cf6" />
-                  <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill="#10b981" />
+                  <Bar yAxisId="left" dataKey="qty" name="Transaction Count" fill="#8b5cf6" isAnimationActive={false} />
+                  <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill="#10b981" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

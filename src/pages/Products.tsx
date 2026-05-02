@@ -188,7 +188,19 @@ export default function ProductsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {products.map((p) => (
-            <button key={p.item_code} onClick={() => openDetail(p.item_code)} className="bg-white rounded-xl border p-4 shadow-sm text-left hover:shadow-md transition-shadow">
+            <div
+              key={p.item_code}
+              role="button"
+              tabIndex={0}
+              onClick={() => openDetail(p.item_code)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openDetail(p.item_code);
+                }
+              }}
+              className="bg-white rounded-xl border p-4 shadow-sm text-left hover:shadow-md transition-shadow cursor-pointer"
+            >
               <div className="flex items-start justify-between">
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{p.item_type}</span>
                 <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(p.item_code); }} className="text-gray-400 hover:text-gray-600" title="Copy item code"><Copy size={14} /></button>
@@ -198,7 +210,7 @@ export default function ProductsPage() {
               <div className="mt-3 flex items-center justify-between text-sm">
                 <span className="text-gray-600">Retail: <span className="font-medium text-slate-900">${p.retail_sales.toLocaleString()}</span></span>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

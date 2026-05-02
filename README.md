@@ -25,6 +25,7 @@ An interactive dashboard for analysing warehouse and retail sales data using a K
 
 5. Install frontend dependencies and start the dev server:
   ```bash
+  cd ../
   npm install
   npm run dev
   ```

@@ -1,3 +1,4 @@
+import React from "react";
 import { useEffect, useState } from "react";
 import { ArrowUpDown, ChevronDown, ChevronUp, Download, AlertTriangle } from "lucide-react";
 import { getSuppliers, getSupplierProducts } from "@/api/client";
@@ -131,8 +132,8 @@ export default function SuppliersPage() {
               </thead>
               <tbody>
                 {data.map((s) => (
-                  <>
-                    <tr key={s.supplier} className="border-t hover:bg-gray-50 cursor-pointer" onClick={() => handleExpand(s.supplier)}>
+                  <React.Fragment key={s.supplier}>
+                    <tr className="border-t hover:bg-gray-50 cursor-pointer" onClick={() => handleExpand(s.supplier)}>
                       <td className="px-4 py-3 font-medium text-slate-900">{s.supplier}</td>
                       <td className="px-4 py-3 text-right text-slate-900">${s.retail_sales.toLocaleString()}</td>
                       <td className="px-4 py-3 text-right text-slate-900">${s.warehouse_sales.toLocaleString()}</td>
@@ -166,7 +167,7 @@ export default function SuppliersPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

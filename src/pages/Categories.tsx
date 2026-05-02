@@ -1,27 +1,27 @@
-import { useEffect, useState } from "react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell,
-} from "recharts";
+import { useEffect, useState, lazy } from "react";
 import { getCategories, getCategoryProducts } from "@/api/client";
 import { useFilterStore } from "@/store/useFilterStore";
 import type { Category } from "@/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import LazyChart from "@/components/ui/lazychart";
 
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+const CategoryPieChart = lazy(() => import("@/charts/CategoryPieChart"));
+const CategoryBarChart = lazy(() => import("@/charts/CategoryBarChart"));
+
+interface CategoryProduct {
+  item_code: string;
+  item_description: string;
+  retail_sales: number;
+  warehouse_sales: number;
+  retail_transfers: number;
+}
 
 export default function CategoriesPage() {
   const { year } = useFilterStore();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [products, setProducts] = useState<{
-    item_code: string;
-    item_description: string;
-    retail_sales: number;
-    warehouse_sales: number;
-    retail_transfers: number;
-  }[]>([]);
+  const [products, setProducts] = useState<CategoryProduct[]>([]);
   const [productsTotal, setProductsTotal] = useState(0);
   const [productsPage, setProductsPage] = useState(1);
   const [productsLoading, setProductsLoading] = useState(false);
@@ -30,21 +30,24 @@ export default function CategoriesPage() {
   const totalProductsPages = Math.ceil(productsTotal / 20);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await getCategories(year);
-        if (!cancelled) setCategories(res);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  let cancelled = false;
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await getCategories(year);
+      if (!cancelled) setCategories(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (!cancelled) setLoading(false);
     }
-    load();
-    return () => { cancelled = true; };
-  }, [year]);
+  }
+  const timer = setTimeout(load, 0);
+  return () => {
+    cancelled = true;
+    clearTimeout(timer);
+  };
+}, [year]);
 
   const openModal = async (type: string) => {
     setSelectedCategory(type);
@@ -66,12 +69,6 @@ export default function CategoriesPage() {
     }
   };
 
-  const donutData = categories.map((c) => ({
-    name: c.item_type,
-    value: c.retail_sales + c.warehouse_sales,
-  }));
-  const maxRevenue = Math.max(...categories.map((c) => c.retail_sales + c.warehouse_sales), 0);
-
   const handlePageJump = () => {
     const p = parseInt(pageInput);
     if (!isNaN(p) && p >= 1 && p <= totalProductsPages) {
@@ -79,6 +76,13 @@ export default function CategoriesPage() {
       loadProducts(selectedCategory!, p);
     }
   };
+
+  const donutData = categories.map((c) => ({ name: c.item_type, value: c.retail_sales + c.warehouse_sales }));
+  const barData = categories.map((c) => ({
+    name: c.item_type,
+    qty: c.most_popular_count,
+    revenue: c.retail_sales + c.warehouse_sales,
+  }));
 
   return (
     <div className="space-y-6">
@@ -92,53 +96,8 @@ export default function CategoriesPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border p-5 shadow-sm">
-              <h3 className="text-base font-semibold text-slate-900 mb-4">Revenue Share by Category</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={donutData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    stroke="none"
-                    isAnimationActive={false}
-                  >
-                    {donutData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="none" />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="bg-white rounded-xl border p-5 shadow-sm">
-              <h3 className="text-base font-semibold text-slate-900 mb-4">Qty Sold vs Revenue by Type</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={categories.map((c) => ({
-                    name: c.item_type,
-                    qty: c.most_popular_count,
-                    revenue: c.retail_sales + c.warehouse_sales,
-                  }))}
-                  margin={{ top: 5, right: 40, bottom: 5, left: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis yAxisId="left" width={60} />
-                  <YAxis yAxisId="right" orientation="right" width={70} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar yAxisId="left" dataKey="qty" name="Transaction Count" fill="#8b5cf6" isAnimationActive={false} />
-                  <Bar yAxisId="right" dataKey="revenue" name="Revenue" fill="#10b981" isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <LazyChart title="Revenue Share by Category" component={CategoryPieChart} data={donutData} />
+            <LazyChart title="Qty Sold vs Revenue by Type" component={CategoryBarChart} data={barData} />
           </div>
 
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
@@ -158,9 +117,14 @@ export default function CategoriesPage() {
                 <tbody>
                   {categories.map((c) => {
                     const revenue = c.retail_sales + c.warehouse_sales;
+                    const maxRevenue = Math.max(...categories.map((x) => x.retail_sales + x.warehouse_sales), 0);
                     const isHighest = revenue === maxRevenue;
                     return (
-                      <tr key={c.item_type} className={`border-t hover:bg-gray-50 cursor-pointer ${isHighest ? "bg-emerald-50/50" : ""}`} onClick={() => openModal(c.item_type)}>
+                      <tr
+                        key={c.item_type}
+                        className={`border-t hover:bg-gray-50 cursor-pointer ${isHighest ? "bg-emerald-50/50" : ""}`}
+                        onClick={() => openModal(c.item_type)}
+                      >
                         <td className="px-4 py-3 font-medium text-slate-900">{c.item_type}</td>
                         <td className="px-4 py-3 text-right text-slate-900">${c.retail_sales.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right text-slate-900">${c.warehouse_sales.toLocaleString()}</td>

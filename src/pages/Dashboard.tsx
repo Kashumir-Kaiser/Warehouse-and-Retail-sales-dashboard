@@ -1,58 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell,
-} from "recharts";
+import { useEffect, useState, lazy } from "react";
 import { useFilterStore } from "@/store/useFilterStore";
 import { getKPIs, getSalesByType, getSalesByMonth, getSalesBySupplier, getTop10Products } from "@/api/client";
 import type { KPIs, SalesByType, SalesByMonth, SalesBySupplier, Top10Product } from "@/types";
 import { TrendingUp, Package, Truck, ArrowRightLeft, type LucideIcon } from "lucide-react";
+import LazyChart from "@/components/ui/lazychart";
 
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
-
-function LazyChart({
-  title,
-  height,
-  children,
-}: {
-  title: string;
-  height?: number;          // height of skeleton / chart area
-  children: React.ReactNode;
-}) {
-  const [visible, setVisible] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "200px" }   // start loading 200px before it enters viewport
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  const h = height ?? 300;
-
-  return (
-    <div ref={ref} className="bg-white rounded-xl border p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-slate-900 mb-4">{title}</h3>
-      {visible ? (
-        children
-      ) : (
-        <div style={{ height: h }} className="bg-gray-100 animate-pulse rounded" />
-      )}
-    </div>
-  );
-}
+// Lazy‑load chart components
+const SalesByTypeChart = lazy(() => import("@/charts/SalesByTypeChart"));
+const MonthlyTrendChart = lazy(() => import("@/charts/MonthlyTrendChart"));
+const SupplierPieChart = lazy(() => import("@/charts/SupplierPieChart"));
 
 function KPICard({
   title,
@@ -195,80 +151,14 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Chart grids – headings always shown, charts mount lazily */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <LazyChart title="Sales by Item Type" height={300}>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={byType} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="item_type" />
-              <YAxis tickFormatter={(v) => `$${(v / 1_000_000).toFixed(1)}M`} width={60} />
-              <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-              <Legend />
-              <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" isAnimationActive={false} />
-              <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        </LazyChart>
+        <LazyChart title="Sales by Item Type" component={SalesByTypeChart} data={byType} />
+        <LazyChart title="Monthly Sales Trend" component={MonthlyTrendChart} data={byMonth} />
+        <LazyChart title="Revenue Share by Supplier (Top 10)" component={SupplierPieChart} data={pieData} />
 
-        <LazyChart title="Monthly Sales Trend" height={300}>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={byMonth}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis tickFormatter={(v) => `$${(v / 1_000_000).toFixed(1)}M`} width={60} />
-              <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="retail_sales"
-                name="Retail"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="warehouse_sales"
-                name="Warehouse"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </LazyChart>
-
-        <LazyChart title="Revenue Share by Supplier (Top 10)" height={300}>
-          <div tabIndex={-1} className="focus:outline-none">
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label={({ value }) => `$${Math.round(value).toLocaleString()}`}
-                  stroke="none"
-                  isAnimationActive={false}
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="none" />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value: number) => [`$${Math.round(value).toLocaleString()}`, undefined]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </LazyChart>
-
-        <LazyChart title="Top 10 Products by Retail Sales" height={320}>
+        {/* Top 10 products table */}
+        <div className="bg-white rounded-xl border p-5 shadow-sm">
+          <h3 className="text-base font-semibold text-slate-900 mb-4">Top 10 Products by Retail Sales</h3>
           <div className="overflow-auto max-h-[320px]">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
@@ -295,7 +185,7 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-        </LazyChart>
+        </div>
       </div>
     </div>
   );

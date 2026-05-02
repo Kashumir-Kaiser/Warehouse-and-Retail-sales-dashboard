@@ -1,51 +1,11 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import {
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ZAxis,
-  Cell,
-} from "recharts";
+import { useEffect, useState, useCallback, useMemo, lazy } from "react";
 import { getChannelMix } from "@/api/client";
 import { useFilterStore } from "@/store/useFilterStore";
 import type { ChannelMixItem } from "@/types";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import LazyChart from "@/components/ui/lazychart";
 
-const CLASS_COLORS: Record<string, string> = {
-  "Retail-Heavy": "#10b981",
-  "Warehouse-Heavy": "#3b82f6",
-  Balanced: "#f59e0b",
-};
-
-function CustomTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: { payload: ChannelMixItem }[];
-}) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload as ChannelMixItem | undefined;
-  if (!p) return null;
-  return (
-    <div className="bg-white border rounded-lg shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-900 mb-1">{p.item_description}</p>
-      <p className="text-gray-600">Retail: ${p.retail_sales.toLocaleString()}</p>
-      <p className="text-gray-600">Warehouse: ${p.warehouse_sales.toLocaleString()}</p>
-      <p className="text-gray-600">Transfers: ${p.retail_transfers.toLocaleString()}</p>
-      <p className="text-gray-600">Classification: {p.classification}</p>
-    </div>
-  );
-}
+const ChannelScatterChart = lazy(() => import("@/charts/ChannelScatterChart"));
 
 export default function ChannelMixPage() {
   const { year } = useFilterStore();
@@ -56,7 +16,7 @@ export default function ChannelMixPage() {
   const [selected, setSelected] = useState<ChannelMixItem | null>(null);
   const [availableMonths, setAvailableMonths] = useState<number[]>([]);
 
-    useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
     async function loadMonths() {
       try {
@@ -64,7 +24,6 @@ export default function ChannelMixPage() {
         const data = await res.json();
         if (!cancelled) {
           setAvailableMonths(data.months);
-          // If current month is not in the new list, reset
           if (month !== null && !data.months.includes(month)) {
             setMonth(null);
           }
@@ -75,7 +34,7 @@ export default function ChannelMixPage() {
     }
     loadMonths();
     return () => { cancelled = true; };
-  }, [year, month, setMonth]);
+  }, [year, month]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,8 +48,9 @@ export default function ChannelMixPage() {
     }
   }, [month, classification, year]);
 
-useEffect(() => {
-    load();
+  useEffect(() => {
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const topPerCategory = useMemo(() => {
@@ -101,16 +61,21 @@ useEffect(() => {
       groups.get(cls)!.push(item);
     });
     const result: ChannelMixItem[] = [];
-    groups.forEach((items) => result.push(...items.slice(0, 10)));
+    groups.forEach((items: ChannelMixItem[]) => result.push(...items.slice(0, 10)));
     return result;
   }, [data]);
 
-  const scatterData = topPerCategory.map((d) => ({
+  const scatterData = topPerCategory.map((d: ChannelMixItem) => ({
     ...d,
     x: d.retail_sales,
     y: d.warehouse_sales,
     z: Math.max(20, Math.min(500, d.retail_transfers * 2)),
   }));
+
+  const scatterChartData = {
+    scatterData,
+    onPointClick: (item: ChannelMixItem) => setSelected(item),
+  };
 
   return (
     <div className="space-y-6">
@@ -119,6 +84,7 @@ useEffect(() => {
       </div>
 
       <div className="bg-white rounded-xl border p-4 shadow-sm flex flex-wrap gap-3 items-center">
+        {/* month and classification buttons as before (unchanged) */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-gray-600">Month:</span>
           {availableMonths.map((m) => (
@@ -126,21 +92,14 @@ useEffect(() => {
               key={m}
               onClick={() => setMonth(month === m ? null : m)}
               className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                month === m
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                month === m ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
               {["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m]}
             </button>
           ))}
           {month && (
-            <button
-              onClick={() => setMonth(null)}
-              className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
-            >
-              All
-            </button>
+            <button onClick={() => setMonth(null)} className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">All</button>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -150,9 +109,7 @@ useEffect(() => {
               key={c}
               onClick={() => setClassification(classification === c ? null : c)}
               className={`px-3 py-1 rounded-full text-sm font-medium transition-colors border ${
-                classification === c
-                  ? "bg-slate-800 text-white border-slate-800"
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                classification === c ? "bg-slate-800 text-white border-slate-800" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
               }`}
             >
               {c}
@@ -164,33 +121,23 @@ useEffect(() => {
       {loading ? (
         <div className="bg-white rounded-xl border p-4 h-[500px] animate-pulse" />
       ) : (
-        <div className="bg-white rounded-xl border p-5 shadow-sm">
-          <div tabIndex={-1} className="focus:outline-none">
-            <ResponsiveContainer width="100%" height={500}>
-              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" dataKey="x" name="Retail Sales" unit=" $" />
-                <YAxis type="number" dataKey="y" name="Warehouse Sales" unit=" $" />
-                <ZAxis type="number" dataKey="z" range={[20, 500]} />
-                <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CustomTooltip />} />
-                <Scatter data={scatterData} onClick={(d: { payload: ChannelMixItem }) => setSelected(d.payload)} isAnimationActive={false}>
-                  {scatterData.map((entry, index) => (
-                    <Cell key={index} fill={CLASS_COLORS[entry.classification] || "#8884d8"} />
-                  ))}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex items-center justify-center gap-6 mt-4">
-            {Object.entries(CLASS_COLORS).map(([name, color]) => (
-              <div key={name} className="flex items-center gap-2 text-sm text-gray-600">
-                <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: color }} />
-                {name}
-              </div>
-            ))}
-          </div>
-        </div>
+        <LazyChart
+          title="Warehouse vs Retail Sales Scatter"
+          height={500}
+          component={ChannelScatterChart}
+          data={scatterChartData}
+        />
       )}
+
+      {/* Legend colors */}
+      <div className="flex items-center justify-center gap-6 mt-4">
+        {Object.entries({ "Retail-Heavy": "#10b981", "Warehouse-Heavy": "#3b82f6", Balanced: "#f59e0b" }).map(([name, color]) => (
+          <div key={name} className="flex items-center gap-2 text-sm text-gray-600">
+            <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: color }} />
+            {name}
+          </div>
+        ))}
+      </div>
 
       <Sheet open={!!selected} onOpenChange={() => setSelected(null)}>
         <SheetContent className="w-[400px] sm:max-w-md">

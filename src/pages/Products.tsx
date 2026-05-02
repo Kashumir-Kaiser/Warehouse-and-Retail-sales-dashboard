@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, lazy } from "react";
 import { Search, X, Copy, ChevronLeft, ChevronRight, ArrowUpDown } from "lucide-react";
 import { searchProducts, getProductSuggest, getProductDetail } from "@/api/client";
 import { useFilterStore } from "@/store/useFilterStore";
 import type { Product, ProductDetail } from "@/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+const ProductDetailChart = lazy(() => import("@/charts/ProductDetailChart"));
 
 export default function ProductsPage() {
   const { year } = useFilterStore();
@@ -20,11 +21,7 @@ export default function ProductsPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  // Sort order state: "desc" (highest first) or "asc" (lowest first)
   const [order, setOrder] = useState<"desc" | "asc">("desc");
-
-  // Page jump state
   const [pageInput, setPageInput] = useState("");
   
   const load = useCallback(async () => {
@@ -41,7 +38,8 @@ export default function ProductsPage() {
   }, [q, itemType, supplier, page, perPage, order, year]);
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   useEffect(() => {
@@ -65,30 +63,10 @@ export default function ProductsPage() {
   };
 
   const totalPages = Math.ceil(total / perPage);
-
-  const monthLabel = (month: number) => {
-    const n = Number(month);
-    const months = [
-      "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    return months[n] ?? String(month);
-  };
-
-  const monthsCount = selected?.months_breakdown.length ?? 0;
-  const chartWidth = Math.max(420, monthsCount * 70);
-
-  const toggleSortOrder = () => {
-    setOrder(prev => (prev === "desc" ? "asc" : "desc"));
-    setPage(1);
-  };
-
+  const toggleSortOrder = () => { setOrder(prev => (prev === "desc" ? "asc" : "desc")); setPage(1); };
   const handlePageJump = () => {
     const p = parseInt(pageInput, 10);
-    if(!isNaN(p) && p >= 1 && p <= totalPages) {
-      setPage(p);
-      setPageInput("");
-    }
+    if(!isNaN(p) && p >= 1 && p <= totalPages) { setPage(p); setPageInput(""); }
   };
 
   return (
@@ -244,37 +222,8 @@ export default function ProductsPage() {
                 <p className="px-2 py-1 text-sm text-gray-500">{selected.supplier}</p>
               </div>
 
-              {/* Chart */}
-              <div className="bg-white rounded-xl border p-4 shadow-sm">
-                <h4 className="text-sm font-semibold text-slate-900 mb-3">
-                  Monthly Breakdown
-                </h4>
-
-                <div className="overflow-x-auto">
-                  <div style={{ width: chartWidth, height: 240 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={selected.months_breakdown}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="month"
-                          tickFormatter={monthLabel}
-                          interval={0}
-                          minTickGap={0}
-                          angle={-45}
-                          textAnchor="end"
-                          height={60}
-                        />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="retail_sales" name="Retail" fill="#3b82f6" isAnimationActive={false} />
-                        <Bar dataKey="warehouse_sales" name="Warehouse" fill="#10b981" isAnimationActive={false} />
-                        <Bar dataKey="retail_transfers" name="Transfers" fill="#f59e0b" isAnimationActive={false} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
+              {/* Lazy load the chart only when the sheet opens */}
+              <ProductDetailChart data={selected.months_breakdown} />
 
               {/* Table */}
               <div className="overflow-x-auto">
@@ -313,3 +262,9 @@ export default function ProductsPage() {
     </div>
   );
 }
+
+// Helper function for month label
+const monthLabel = (month: number) => {
+  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return months[month] ?? String(month);
+};
